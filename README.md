@@ -14,31 +14,37 @@ Ada juga **versi `.bat` tanpa membuka browser** (`ssh-console.bat`) — SSH lang
 | **Berkas (SFTP)** | Ikon gaya VS Code, syntax color, file/folder tersembunyi, upload file **dan folder**, move/rename/delete/archive/extract/chmod/copy/search |
 | **Tampilan** | Desktop VPS lewat noVNC (XFCE, GNOME, x11vnc, xrdp) + pemindai port otomatis dan panduan pemasangan |
 
-Sesi disimpan di **cookie + localStorage**, jadi pindah halaman **tidak perlu login ulang** dan sesi tidak hilang saat tab di-refresh.
+Sesi disimpan di **cookie + localStorage**. Pindah antar ketiga halaman **tidak pernah minta login ulang** dan sesi tidak hilang saat tab di-refresh.
+
+Saat aplikasi dibuka, yang pertama muncul **selalu layar login SSH** — tidak pernah langsung melompat ke halaman terakhir. Kalau ada sesi tersimpan, di layar login muncul kartu "Lanjutkan sesi `user@host`": satu ketukan untuk masuk tanpa mengetik ulang apa pun, atau "Sesi baru" untuk membuangnya. Setelah masuk, aplikasi selalu mulai dari halaman Terminal.
+
+Tata letaknya bekerja penuh dalam **mode potret di HP** — tidak perlu memiringkan layar.
 
 ---
 
 ## 1. Menjalankan di komputer sendiri (paling lengkap)
 
-Butuh Node.js 20 atau lebih baru (Node 24 disarankan): <https://nodejs.org>
-
-### Windows
-
-Klik dua kali:
+### Windows — klik dua kali saja
 
 ```
-start.bat
+start.bat          → server + browser
+ssh-console.bat    → SSH langsung di Command Prompt, tanpa browser
 ```
 
-Skrip itu memeriksa Node, menjalankan `npm install` bila `node_modules` belum ada, menyalakan server, lalu membuka browser ke `http://127.0.0.1:8787`.
+**Komputer tidak perlu punya OpenSSH.** Tidak perlu ada perintah `ssh`, tidak perlu "OpenSSH Client" di Optional Features, tidak perlu PuTTY. Seluruh protokol SSH dikerjakan oleh pustaka `ssh2` (JavaScript murni) di dalam aplikasi ini.
 
-### Tanpa browser (mode konsol)
+**Node.js juga tidak wajib terpasang.** Kedua `.bat` di atas memanggil `bootstrap.bat` yang bekerja begini:
 
-```
-ssh-console.bat
-```
+1. Cari Node.js di sistem. Ada → pakai itu.
+2. Tidak ada → cari Node portabel di `runtime\node\`.
+3. Masih tidak ada → unduh Node portabel (file zip biasa) dari nodejs.org ke folder `runtime\`, ekstrak dengan PowerShell bawaan Windows.
+4. Pasang pustaka `ssh2` lewat npm bila belum ada.
 
-Ini menjalankan `node cli.js`: SSH interaktif langsung di Command Prompt, lengkap dengan penyimpan profil (`profiles.json`) dan password yang tidak tampil saat diketik.
+Tidak ada yang dipasang ke sistem, registry tidak disentuh, **hak admin tidak dibutuhkan**. Hapus folder `runtime\` dan jejaknya hilang. Kalau Node 22 menolak jalan (Windows 7/8), skrip otomatis mundur ke Node 16 yang masih mendukungnya.
+
+Satu-satunya yang dibutuhkan saat pertama kali: koneksi internet untuk mengunduh. Sesudah itu folder aplikasi bisa disalin ke flashdisk dan dijalankan di komputer lain yang sama sekali tidak punya Node maupun SSH.
+
+`ssh-console.bat` menjalankan `cli.js`: SSH interaktif di Command Prompt, lengkap dengan penyimpan profil (`profiles.json`) dan password yang tidak tampil saat diketik.
 
 ### Linux / macOS
 
@@ -122,20 +128,25 @@ Pesan galat ditulis dalam bahasa Indonesia beserta saran perbaikannya (port sala
 
 ---
 
-## 4. Halaman Tampilan (desktop)
+## 4. Halaman Tampilan (desktop) — pemasangan otomatis
 
-Tombol **Pindai** akan memeriksa port 5900–5919, 3389, dan 6080 di VPS Anda.
+Begitu halaman Tampilan dibuka, aplikasi langsung memeriksa VPS sendiri: port 5900–5919, 3389, 6080, program yang sudah terpasang, distro, manajer paket, RAM, sisa disk, dan apakah Anda root atau butuh sudo.
 
-Belum ada desktop? Kartu panduan di halaman itu menyediakan perintah siap salin, misalnya:
+**Kalau sudah ada VNC** → halaman langsung menawarkan kolom password dan tombol sambungkan.
 
-```bash
-sudo apt update
-sudo apt install -y xfce4 xfce4-goodies tigervnc-standalone-server
-vncpasswd
-vncserver :1 -geometry 1280x720 -localhost yes
-```
+**Kalau belum ada desktop** → muncul pertanyaan "Belum ada desktop di VPS ini. Pasang sekarang?" beserta pilihan:
 
-Karena `-localhost yes`, port VNC **tidak terbuka ke internet** — aplikasi ini menembusnya lewat tunnel SSH (mode lokal). Ini cara paling aman.
+| Pilihan | Untuk siapa |
+|---|---|
+| XFCE + TigerVNC | VPS 1 GB ke atas, desktop lengkap tapi ringan |
+| LXDE + TigerVNC | VPS kecil atau koneksi lambat, paling hemat RAM |
+| x11vnc | VPS yang sudah punya layar aktif, ditampilkan apa adanya |
+
+Ditambah pilihan resolusi, password VNC (dibuatkan otomatis, bisa diganti), dan kolom password sudo yang hanya muncul kalau memang dibutuhkan.
+
+Tekan **Pasang otomatis sekarang**, lalu semuanya berjalan di halaman itu: daftar langkah dengan tanda centang, log pemasangan yang mengalir langsung dari VPS, deteksi kegagalan (password sudo salah, disk penuh, paket tidak ada), dan setelah selesai layar tersambung sendiri. **Tidak perlu membuka terminal, tidak perlu mengetik satu perintah pun.** Kalau Anda tetap ingin melakukannya manual, ada tombol "Lihat perintah manual".
+
+VNC dipasang dengan `-localhost yes`, jadi port VNC **tidak terbuka ke internet** — aplikasi menembusnya lewat tunnel SSH (mode lokal). Ini cara paling aman.
 
 Untuk mode serverless, VPS perlu `websockify` yang bisa diakses publik:
 
@@ -187,6 +198,7 @@ public/js/desktop.js   noVNC, pemindai port, panduan pemasangan
 public/js/app.js       boot, login, sesi, keypad HP, tema
 start.bat              peluncur Windows (dengan browser)
 ssh-console.bat        peluncur Windows (tanpa browser)
+bootstrap.bat          penyiap Node portabel — untuk komputer tanpa Node & tanpa SSH
 ```
 
 ---
@@ -198,7 +210,9 @@ ssh-console.bat        peluncur Windows (tanpa browser)
 | `Token sesi tidak valid` | `XAYZ_SECRET` berubah atau server restart. Login ulang. |
 | `vim`/`htop` tampil berantakan di Vercel | Wajar — mode serverless tidak punya PTY. Pakai mode lokal. |
 | Upload folder tidak jalan | Pakai Chrome/Edge (perlu dukungan `webkitdirectory`). |
-| Desktop gelap/kosong | Sesi VNC belum jalan: `vncserver :1`. Cek dengan tombol **Pindai**. |
+| Desktop gelap/kosong | Buka halaman Tampilan lalu tekan **Deteksi**; kalau belum ada, pakai pemasang otomatis di halaman itu. |
+| Pemasangan desktop berhenti di langkah paket | Baca log di halaman: umumnya disk VPS penuh, VPS tidak punya internet, atau password sudo salah. |
+| `bootstrap.bat` gagal mengunduh Node | Jaringan memblokir nodejs.org. Unduh zip-nya manual, ekstrak ke `runtime\node\` sampai ada `runtime\node\node.exe`. |
 | Koneksi lambat pertama kali | Handshake SSH. Berikutnya dipercepat oleh pool koneksi. |
 | `npm install` gagal | Perbarui Node ke versi 20+ lalu hapus `node_modules` dan ulangi. |
 

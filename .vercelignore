@@ -6,3 +6,5 @@ cli.js
 server.js
 profiles.json
 *.zip
+runtime
+bootstrap.bat

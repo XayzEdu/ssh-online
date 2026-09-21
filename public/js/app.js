@@ -143,7 +143,7 @@
   /* ---------------------------------------------------------- masuk app */
 
   function enterApp(session) {
-    $('gate').style.display = 'none';
+    $('gate').hidden = true;
     $('app').hidden = false;
     document.body.dataset.view = 'app';
 
@@ -161,8 +161,9 @@
       UI.toast('VPS memakai algoritma SSH lama. Koneksi tetap jalan tapi sebaiknya perbarui OpenSSH.', 'warn', 7000);
     }
 
-    setView(prefs.view && ['terminal', 'files', 'desktop'].indexOf(prefs.view) > -1
-      ? prefs.view : 'terminal');
+    // Selalu mulai dari Terminal. Halaman Tampilan hanya terbuka kalau
+    // pengguna sendiri yang menekannya.
+    setView('terminal');
 
     // Jaga sesi tetap hidup supaya koneksi tidak diputus server
     clearInterval(keepaliveTimer);
@@ -379,6 +380,49 @@
     renderSaved();
   }
 
+  function describeMode(mode) {
+    return mode === 'local'
+      ? 'Mode lokal · terminal penuh, SFTP, dan tampilan desktop aktif'
+      : 'Mode serverless · terminal perintah dan SFTP aktif, shell interaktif hanya di mode lokal';
+  }
+
+  /** Sesi lama tidak pernah langsung membuka aplikasi. Pengguna selalu melihat
+   *  layar login dulu, dengan satu tombol untuk melanjutkan tanpa mengetik ulang. */
+  function showResume() {
+    var info = XayzApi.Session.info || {};
+    var card = $('resumeCard');
+    card.hidden = false;
+    $('resumeWho').textContent = (info.user || 'pengguna') + '@' + (info.hostname || 'vps');
+    $('resumeNote').textContent = 'Sesi sebelumnya masih tersimpan. Tekan Lanjutkan untuk masuk tanpa login ulang.';
+
+    $('resumeBtn').onclick = function () {
+      var b = this;
+      b.disabled = true;
+      b.textContent = 'Memeriksa…';
+      XayzApi.rpc('keepalive').then(function () {
+        if (!XayzApi.Session.info) {
+          XayzApi.Session.info = { user: 'pengguna', hostname: 'vps', home: '/root' };
+        }
+        enterApp({ info: XayzApi.Session.info, mode: XayzApi.Session.mode });
+      }).catch(function (e) {
+        XayzApi.Session.clear();
+        card.hidden = true;
+        showError('Sesi sebelumnya tidak bisa dilanjutkan: ' + e.message + ' Silakan login lagi.');
+        $('f_host').focus();
+      }).then(function () {
+        b.disabled = false;
+        b.textContent = 'Lanjutkan';
+      });
+    };
+
+    $('resumeDrop').onclick = function () {
+      XayzApi.rpc('disconnect').catch(function () {});
+      XayzApi.Session.clear();
+      card.hidden = true;
+      $('f_host').focus();
+    };
+  }
+
   function boot() {
     if (prefs.theme === 'light') {
       document.body.classList.add('light');
@@ -388,31 +432,14 @@
     bindGate();
     bindApp();
 
-    serverMode().then(function (r) {
-      $('gateMode').textContent = r.mode === 'local'
-        ? 'Mode lokal · terminal penuh, SFTP, dan tampilan desktop aktif'
-        : 'Mode serverless · terminal perintah dan SFTP aktif, shell interaktif hanya di mode lokal';
+    // Layar login selalu yang pertama muncul, apa pun isi penyimpanan.
+    $('gate').hidden = false;
+    $('app').hidden = true;
 
-      // Pulihkan sesi lama tanpa meminta login ulang
-      if (XayzApi.Session.restore()) {
-        $('gateMode').textContent = 'Memulihkan sesi sebelumnya…';
-        XayzApi.rpc('keepalive').then(function () {
-          if (!XayzApi.Session.info) {
-            // Token masih sah tapi data sistem hilang: ambil ulang seperlunya
-            XayzApi.Session.info = { user: 'pengguna', hostname: 'vps', home: '/root' };
-          }
-          enterApp({ info: XayzApi.Session.info, mode: XayzApi.Session.mode });
-        }).catch(function (e) {
-          XayzApi.Session.clear();
-          $('gateMode').textContent = r.mode === 'local'
-            ? 'Mode lokal · terminal penuh, SFTP, dan tampilan desktop aktif'
-            : 'Mode serverless · terminal perintah dan SFTP aktif';
-          showError('Sesi sebelumnya tidak bisa dilanjutkan: ' + e.message);
-          $('f_host').focus();
-        });
-      } else {
-        $('f_host').focus();
-      }
+    serverMode().then(function (r) {
+      $('gateMode').textContent = describeMode(r.mode);
+      if (XayzApi.Session.restore()) showResume();
+      else if (!matchMedia('(pointer: coarse)').matches) $('f_host').focus();
     });
   }
 

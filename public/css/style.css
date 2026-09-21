@@ -47,6 +47,7 @@ body.light {
 
 html, body {
   height: 100%;
+  height: 100dvh;
   margin: 0;
   background: var(--bg);
   color: var(--text);
@@ -66,6 +67,10 @@ a { color: var(--accent); }
   outline-offset: 2px;
 }
 
+/* PENTING: banyak elemen di sini memakai display:flex/grid, yang menimpa
+   perilaku bawaan atribut [hidden]. Tanpa aturan ini, panel Terminal, Berkas,
+   dan Tampilan muncul bertumpuk sekaligus. */
+[hidden] { display: none !important; }
 .hidden { display: none !important; }
 
 /* ============================================================= LOGIN ==== */
@@ -225,11 +230,55 @@ body.light .gate-error { color: #8d2226; }
 
 .app {
   height: 100%;
+  overflow: hidden;
   display: grid;
   grid-template-columns: var(--rail) 1fr;
   grid-template-rows: calc(var(--top) + var(--safe-t)) 1fr;
   grid-template-areas: "rail top" "rail main";
 }
+
+/* Kartu "lanjutkan sesi" di halaman login */
+.resume {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(53,194,168,.09), transparent);
+  padding: 13px 14px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.resume .who { font-family: var(--mono); font-size: 12.5px; flex: 1; min-width: 150px; }
+.resume .who b { display: block; color: var(--text); font-weight: 500; }
+.resume .who small { color: var(--text-faint); }
+
+/* Panel pemasang desktop */
+.wiz { display: flex; flex-direction: column; gap: 12px; }
+.wiz-opt {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; cursor: pointer;
+}
+.wiz-opt.on { border-color: var(--accent); background: var(--panel-2); }
+.wiz-opt input { margin-top: 3px; flex: none; }
+.wiz-opt b { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.wiz-opt span { font-size: 12px; color: var(--text-dim); }
+.wiz-log {
+  background: #0a0d12;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #b8c2d4;
+  padding: 10px 12px;
+  height: 230px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wiz-steps { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+.wiz-steps i { font-style: normal; color: var(--text-faint); }
+.wiz-steps i.run { color: var(--warn); }
+.wiz-steps i.done { color: var(--ok); }
+.wiz-steps i.fail { color: var(--danger); }
 
 .rail {
   grid-area: rail;
@@ -634,11 +683,42 @@ body.light .tok-key { color: #4a53c9; }
   .frow .fmode, .frow .ftime { display: none; }
   .frow { padding: 9px 12px; }
   .file-side { position: fixed; inset: 0; width: 100%; z-index: 250; }
-  .selbar { left: 8px; right: 8px; bottom: calc(60px + var(--safe-b)); }
+  .selbar {
+    left: 8px; right: 8px; bottom: calc(60px + var(--safe-b));
+    max-height: 42vh; overflow-y: auto;
+  }
   .crumbs { max-width: 58vw; }
   .search { width: 130px; }
   .drop-hint { display: none !important; }
   .toasts { left: 10px; right: 10px; bottom: calc(66px + var(--safe-b)); max-width: none; }
+
+  /* Kartu login: layar sempit tidak boleh terpotong atau menggeser ke samping */
+  .gate { padding: calc(14px + var(--safe-t)) 10px calc(14px + var(--safe-b)); align-items: start; }
+  .gate-card { padding: 18px 15px; border-radius: 14px; gap: 12px; }
+  .gate-head h1 { font-size: 17px; }
+  .field-row { flex-wrap: wrap; }
+  .field.port { width: 76px; }
+
+  /* Bilah alat halaman: biarkan menggulir mendatar, jangan melebarkan halaman */
+  .pane-bar { flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .pane-bar > * { flex: none; }
+  .select-sm { max-width: 46vw; }
+
+  .desk-empty { padding: 20px 14px calc(24px + var(--safe-b)); }
+  .modal { padding: 16px; max-height: 88dvh; }
+}
+
+/* Portrait di ponsel: prioritaskan ruang vertikal */
+@media (max-width: 760px) and (orientation: portrait) {
+  .keypad { max-height: 34dvh; overflow-y: auto; }
+  .desk-host { min-height: 240px; }
+}
+
+/* Layar sangat pendek (ponsel landscape): rapatkan bilah */
+@media (max-height: 460px) {
+  :root { --top: 38px; }
+  .pane-bar { min-height: 36px; padding: 3px 8px; }
+  .rail-btn em { display: none; }
 }
 
 /* xterm menyesuaikan tema */
