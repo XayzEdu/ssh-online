@@ -1,0 +1,23 @@
+{
+  "name": "xayz-ssh-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Xayz SSH Online - web SSH terminal, SFTP file manager, and remote desktop viewer. Works locally (full WebSocket mode) and on Vercel Free (serverless mode).",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "cli": "node cli.js",
+    "postinstall": "node -e \"console.log('\\n  Xayz SSH Online siap. Jalankan: npm start\\n')\""
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0",
+    "ws": "^8.18.0"
+  },
+  "keywords": ["ssh", "sftp", "webssh", "terminal", "vnc", "vps"],
+  "license": "MIT"
+}

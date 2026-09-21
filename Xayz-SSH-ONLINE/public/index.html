@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#12161d">
+<meta name="description" content="Xayz SSH Online — terminal, berkas, dan desktop VPS dalam satu halaman.">
+<title>Xayz SSH Online</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2312161d'/%3E%3Cpath d='M7 10l6 6-6 6' stroke='%2335c2a8' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 22h9' stroke='%237c8cff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body data-view="connect">
+
+<!-- ============================================================ LOGIN ==== -->
+<section id="gate" class="gate">
+  <div class="gate-grid" aria-hidden="true"></div>
+
+  <form class="gate-card" id="connectForm" autocomplete="off">
+    <header class="gate-head">
+      <svg class="gate-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M6 9l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16 23h10" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>Xayz SSH Online</h1>
+        <p id="gateMode">Memeriksa kemampuan server…</p>
+      </div>
+    </header>
+
+    <div class="field-row">
+      <label class="field grow">
+        <span>IP atau host</span>
+        <input id="f_host" name="host" placeholder="203.0.113.10" required autocapitalize="off" spellcheck="false" inputmode="url">
+      </label>
+      <label class="field port">
+        <span>Port</span>
+        <input id="f_port" name="port" value="22" inputmode="numeric" pattern="[0-9]*">
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label class="field grow">
+        <span>Username</span>
+        <input id="f_user" name="username" value="root" autocapitalize="off" spellcheck="false">
+      </label>
+      <label class="field grow">
+        <span>Password</span>
+        <span class="pw-wrap">
+          <input id="f_pass" name="password" type="password" autocomplete="new-password">
+          <button type="button" class="pw-toggle" id="pwToggle" aria-label="Tampilkan password">Lihat</button>
+        </span>
+      </label>
+    </div>
+
+    <details class="adv" id="advKey">
+      <summary>Private key, passphrase, sudo</summary>
+      <div class="adv-body">
+        <label class="field">
+          <span>Private key (OpenSSH / PEM)</span>
+          <textarea id="f_key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" spellcheck="false"></textarea>
+        </label>
+        <div class="field-row">
+          <label class="field grow">
+            <span>Passphrase key</span>
+            <input id="f_passphrase" type="password" autocomplete="new-password">
+          </label>
+          <label class="field grow file-pick">
+            <span>Muat dari berkas</span>
+            <input id="f_keyfile" type="file" accept=".pem,.key,.txt,*">
+          </label>
+        </div>
+      </div>
+    </details>
+
+    <details class="adv" id="advNet">
+      <summary>Proxy dan jump host (untuk VPS NAT)</summary>
+      <div class="adv-body">
+        <label class="field">
+          <span>Jalur koneksi</span>
+          <select id="f_proxytype">
+            <option value="none">Langsung ke VPS</option>
+            <option value="auto">Coba langsung, lalu proxy otomatis</option>
+            <option value="http">Proxy HTTP CONNECT</option>
+            <option value="socks5">Proxy SOCKS5</option>
+            <option value="socks4">Proxy SOCKS4 / 4a</option>
+          </select>
+        </label>
+        <div class="field-row proxy-only hidden" id="proxyFields">
+          <label class="field grow">
+            <span>Host proxy</span>
+            <input id="f_proxyhost" autocapitalize="off" spellcheck="false">
+          </label>
+          <label class="field port">
+            <span>Port</span>
+            <input id="f_proxyport" inputmode="numeric">
+          </label>
+        </div>
+        <div class="field-row proxy-only hidden">
+          <label class="field grow">
+            <span>User proxy</span>
+            <input id="f_proxyuser" autocapitalize="off">
+          </label>
+          <label class="field grow">
+            <span>Password proxy</span>
+            <input id="f_proxypass" type="password" autocomplete="new-password">
+          </label>
+        </div>
+        <hr class="rule">
+        <label class="field">
+          <span>Jump host — lompat lewat server perantara</span>
+          <input id="f_jump" placeholder="user:password@1.2.3.4:22" autocapitalize="off" spellcheck="false">
+        </label>
+        <p class="hint">Pisahkan dengan koma untuk beberapa lompatan berurutan. Kosongkan jika VPS bisa dihubungi langsung.</p>
+      </div>
+    </details>
+
+    <label class="check">
+      <input type="checkbox" id="f_remember" checked>
+      <span>Ingat sesi di perangkat ini</span>
+    </label>
+
+    <button type="submit" class="btn-primary" id="connectBtn">
+      <span class="btn-label">Hubungkan</span>
+      <span class="spinner" hidden></span>
+    </button>
+
+    <p class="gate-error" id="gateError" role="alert" hidden></p>
+
+    <div class="saved" id="savedList" hidden>
+      <h2>Koneksi tersimpan</h2>
+      <div id="savedItems"></div>
+    </div>
+
+    <p class="gate-note">Password dienkripsi di server sebelum disimpan sebagai token. Jangan pakai perangkat bersama untuk kredensial root.</p>
+  </form>
+</section>
+
+<!-- ============================================================= APP ====== -->
+<div id="app" class="app" hidden>
+
+  <nav class="rail" role="tablist" aria-label="Halaman">
+    <button class="rail-btn active" data-view="terminal" role="tab" aria-selected="true" title="Terminal">
+      <svg viewBox="0 0 24 24"><path d="M4 6l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <em>Terminal</em>
+    </button>
+    <button class="rail-btn" data-view="files" role="tab" aria-selected="false" title="Berkas">
+      <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <em>Berkas</em>
+    </button>
+    <button class="rail-btn" data-view="desktop" role="tab" aria-selected="false" title="Tampilan">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <em>Tampilan</em>
+    </button>
+
+    <div class="rail-spacer"></div>
+
+    <button class="rail-btn small" id="themeBtn" title="Ganti tema">
+      <svg viewBox="0 0 24 24"><path d="M20 13a8 8 0 11-9-9 6.5 6.5 0 009 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <em>Tema</em>
+    </button>
+    <button class="rail-btn small danger" id="logoutBtn" title="Putuskan koneksi">
+      <svg viewBox="0 0 24 24"><path d="M15 12H4m0 0l3-3m-3 3l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 5h7a2 2 0 012 2v10a2 2 0 01-2 2h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <em>Putus</em>
+    </button>
+  </nav>
+
+  <header class="topbar">
+    <div class="conn-chip" id="connChip">
+      <i class="dot" id="connDot"></i>
+      <strong id="connWho">—</strong>
+      <span id="connOs"></span>
+    </div>
+    <div class="topbar-right">
+      <span class="mode-tag" id="modeTag"></span>
+      <button class="icon-btn" id="statsBtn" title="Info sistem">
+        <svg viewBox="0 0 24 24"><path d="M12 8v5m0 3h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ------------------------------------------------------- TERMINAL --- -->
+  <main class="pane" id="view-terminal">
+    <div class="pane-bar">
+      <div class="tabs" id="termTabs"></div>
+      <button class="ghost-btn" id="newTermBtn" title="Sesi baru">+ Sesi</button>
+      <div class="bar-spacer"></div>
+      <button class="icon-btn" id="fontMinus" title="Perkecil font">A−</button>
+      <span class="font-size" id="fontSizeLabel">14</span>
+      <button class="icon-btn" id="fontPlus" title="Perbesar font">A+</button>
+      <button class="icon-btn" id="clearTermBtn" title="Bersihkan layar">
+        <svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V5h6v2m-8 0l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="icon-btn" id="keysBtn" title="Tombol bantu">⌨</button>
+      <button class="icon-btn" id="termFsBtn" title="Layar penuh">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="term-host" id="termHost"></div>
+    <div class="keypad" id="keypad" hidden></div>
+  </main>
+
+  <!-- ---------------------------------------------------------- FILES --- -->
+  <main class="pane" id="view-files" hidden>
+    <div class="pane-bar">
+      <button class="icon-btn" id="fUp" title="Naik satu folder">↑</button>
+      <button class="icon-btn" id="fHome" title="Folder home">⌂</button>
+      <button class="icon-btn" id="fRefresh" title="Muat ulang">⟳</button>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="bar-spacer"></div>
+      <input class="search" id="fSearch" placeholder="Saring nama berkas" spellcheck="false">
+      <button class="icon-btn" id="fHidden" title="Tampilkan berkas tersembunyi">•</button>
+      <button class="icon-btn" id="fNewFolder" title="Folder baru">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10v6M9 13h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn" id="fNewFile" title="Berkas baru">
+        <svg viewBox="0 0 24 24"><path d="M6 3h7l5 5v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn" id="fUpload" title="Unggah berkas">
+        <svg viewBox="0 0 24 24"><path d="M12 16V5m0 0l-4 4m4-4l4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 18v2h16v-2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn" id="fUploadDir" title="Unggah folder">⇪</button>
+    </div>
+
+    <div class="files-body">
+      <div class="file-list" id="fileList" tabindex="0"></div>
+      <aside class="file-side" id="fileSide" hidden></aside>
+    </div>
+
+    <div class="selbar" id="selbar" hidden>
+      <span id="selCount">0 dipilih</span>
+      <div class="selbar-actions">
+        <button class="ghost-btn" data-act="download">Unduh</button>
+        <button class="ghost-btn" data-act="rename">Ubah nama</button>
+        <button class="ghost-btn" data-act="move">Pindah</button>
+        <button class="ghost-btn" data-act="copy">Salin</button>
+        <button class="ghost-btn" data-act="archive">Arsipkan</button>
+        <button class="ghost-btn" data-act="extract">Ekstrak</button>
+        <button class="ghost-btn" data-act="chmod">Izin akses</button>
+        <button class="ghost-btn danger" data-act="delete">Hapus</button>
+        <button class="ghost-btn" data-act="clear">Batal pilih</button>
+      </div>
+    </div>
+
+    <input type="file" id="hiddenFileInput" multiple hidden>
+    <input type="file" id="hiddenDirInput" webkitdirectory directory multiple hidden>
+    <div class="drop-hint" id="dropHint" hidden>Lepaskan untuk mengunggah ke folder ini</div>
+  </main>
+
+  <!-- -------------------------------------------------------- DESKTOP --- -->
+  <main class="pane" id="view-desktop" hidden>
+    <div class="pane-bar">
+      <select id="dSource" class="select-sm">
+        <option value="tunnel">Tunnel lewat SSH (mode lokal)</option>
+        <option value="direct">Websockify langsung di VPS</option>
+      </select>
+      <input class="search" id="dPort" value="5901" style="max-width:110px" title="Port VNC di VPS">
+      <input class="search" id="dUrl" placeholder="ws://ip-vps:6080/websockify" hidden>
+      <input class="search" id="dPass" type="password" placeholder="Password VNC" style="max-width:150px">
+      <button class="ghost-btn" id="dConnect">Sambungkan layar</button>
+      <button class="ghost-btn" id="dProbe">Deteksi</button>
+      <div class="bar-spacer"></div>
+      <label class="check inline"><input type="checkbox" id="dScale" checked><span>Skala</span></label>
+      <label class="check inline"><input type="checkbox" id="dView"><span>Hanya lihat</span></label>
+      <button class="icon-btn" id="dCtrlAltDel" title="Kirim Ctrl+Alt+Del">C-A-D</button>
+      <button class="icon-btn" id="dFsBtn" title="Layar penuh">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="desk-host" id="deskHost">
+      <div class="desk-empty" id="deskEmpty">
+        <h2>Belum ada layar yang tersambung</h2>
+        <p>Halaman ini menampilkan desktop VPS lewat VNC. Tekan <strong>Deteksi</strong> untuk melihat layanan yang sudah berjalan, atau pasang dulu dengan panduan di bawah.</p>
+        <div class="desk-setup" id="deskSetup"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toasts" id="toasts"></div>
+  <div class="modal-root" id="modalRoot" hidden></div>
+  <div class="progress" id="progress" hidden><div class="progress-bar"><i id="progressFill"></i></div><span id="progressText"></span></div>
+</div>
+
+<script src="/js/icons.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/ui.js"></script>
+<script src="/js/term.js"></script>
+<script src="/js/files.js"></script>
+<script src="/js/desktop.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
