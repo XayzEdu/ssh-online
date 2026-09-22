@@ -47,20 +47,56 @@
   /* ------------------------------------------------- menjalankan perintah */
 
   /** Jalankan satu perintah di VPS sambil mengalirkan keluarannya ke panel log.
-   *  Mengembalikan { output, code }. */
+   *  Di mode lokal (Codespaces, komputer sendiri) dipakai jalur WebSocket yang
+   *  TIDAK punya batas waktu buatan — cocok untuk "apt install" yang bisa makan
+   *  beberapa menit. Di mode serverless (Vercel) baru dipakai jalur HTTP yang
+   *  memang dibatasi oleh platform hosting.
+   *  Mengembalikan { output, code, stop }. */
   function run(command, onChunk) {
     var all = '';
-    return XayzApi.execStream(command, '~', 100, 30, function (chunk) {
+    var buf = ''; // baris yang sedang berjalan, sebelum \n atau \r berikutnya
+    var stopFn = null;
+
+    function feed(chunk) {
       all += chunk;
       var mark = chunk.indexOf('\u0001XAYZ_CWD:');
-      if (onChunk) onChunk(mark === -1 ? chunk : chunk.slice(0, mark));
-    }).then(function () {
+      var visible = mark === -1 ? chunk : chunk.slice(0, mark);
+      // Buang kode escape ANSI (warna/kursor) yang tidak berarti apa-apa di <pre> polos.
+      visible = visible.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+      if (!visible) return;
+      // "\r" pada keluaran apt/curl berarti "timpa baris ini" (progress bar),
+      // bukan baris baru. Tanpa penanganan ini teks progres saling menimpa
+      // jadi satu baris panjang yang tidak terbaca.
+      var parts = visible.split(/\r\n|\r|\n/);
+      var hadTrailingBreak = /[\r\n]$/.test(visible);
+      buf = (buf + parts[0]);
+      if (parts.length > 1) {
+        if (onChunk) onChunk(buf + '\n', true);
+        buf = '';
+        for (var i = 1; i < parts.length - 1; i++) { if (onChunk) onChunk(parts[i] + '\n', true); }
+        buf = parts[parts.length - 1];
+      }
+      if (buf && !hadTrailingBreak && onChunk) onChunk(buf, false);
+    }
+
+    var mode = XayzApi.Session.mode;
+    var task = (mode === 'local' ? XayzApi.execWs : XayzApi.execStream)(
+      command, '~', 100, 30, feed
+    );
+    if (task && typeof task.stop === 'function') stopFn = task.stop;
+
+    var result = task.then(function () {
       var code = 0;
       var m = all.match(/XAYZ_CWD:([^\u0001]*)\u0001XAYZ_RC:(\d+)/);
       if (m) code = Number(m[2]);
       var ci = all.indexOf('\u0001XAYZ_CWD:');
       return { output: ci === -1 ? all : all.slice(0, ci), code: code };
     });
+    // .stop() harus bisa dipanggil SELAGI perintah masih berjalan, jadi
+    // ditempelkan di promise yang benar-benar dikembalikan ke pemanggil,
+    // bukan hanya disimpan di dalam nilai hasil resolve.
+    result.stop = function () { if (stopFn) stopFn(); };
+    return result;
   }
 
   /** Tambahkan hak root sesuai keadaan VPS. */
@@ -313,7 +349,9 @@
     var box = UI.el('div', 'wiz');
     box.appendChild(UI.el('h2', null, 'Memasang desktop…'));
     box.appendChild(UI.el('p', null,
-      'Jangan tutup halaman ini. Pemasangan pertama biasanya 3–10 menit, tergantung kecepatan VPS.'));
+      XayzApi.Session.mode === 'local'
+        ? 'Jangan tutup halaman ini. Bergantung kecepatan VPS dan koneksi internetnya, proses ini bisa memakan beberapa menit — tidak ada batas waktu buatan selama tab ini tetap terbuka.'
+        : 'Jangan tutup halaman ini. Mode serverless (Vercel) membatasi setiap langkah sekitar 50 detik. Bila VPS Anda lambat, sebagian langkah bisa gagal karena batas ini — jalankan aplikasi di komputer/VPS sendiri (npm start) untuk pemasangan tanpa batas waktu.'));
 
     var stepsBox = UI.el('div', 'wiz-steps');
     box.appendChild(stepsBox);
@@ -329,9 +367,17 @@
 
     setEmptyState(box);
 
-    function write(text) {
-      log.textContent += text.replace(/\r/g, '');
-      if (log.textContent.length > 120000) log.textContent = log.textContent.slice(-80000);
+    var committedLog = '';
+    var liveLine = '';
+    function write(text, committed) {
+      if (committed) { committedLog += text; liveLine = ''; }
+      else { liveLine = text; }
+      var shown = committedLog + liveLine;
+      if (shown.length > 120000) {
+        committedLog = committedLog.slice(-80000);
+        shown = committedLog + liveLine;
+      }
+      log.textContent = shown;
       log.scrollTop = log.scrollHeight;
     }
 
@@ -390,14 +436,30 @@
     });
 
     var i = 0;
+    var currentTask = null;
+    var userStopped = false;
+
+    var stopBtn = UI.el('button', 'ghost-btn danger', 'Berhenti');
+    stopBtn.onclick = function () {
+      userStopped = true;
+      if (currentTask) currentTask.stop();
+    };
+    actions.appendChild(stopBtn);
+
     function next() {
       if (i >= steps.length) return finish(true);
       marks[i].className = 'run';
       marks[i].textContent = '●';
-      write('\n$ ' + steps[i][0] + '\n');
+      write('\n$ ' + steps[i][0] + '\n', true);
       UI.progress('Pemasangan: ' + steps[i][0], (i + 0.5) / steps.length);
 
-      run(steps[i][1], write).then(function (r) {
+      currentTask = run(steps[i][1], write);
+      currentTask.then(function (r) {
+        if (userStopped) {
+          marks[i].className = 'fail';
+          marks[i].textContent = '✕';
+          return finish(false, 'Pemasangan dihentikan.');
+        }
         var failed = r.code !== 0 ||
           /belum terbuka|tidak ditemukan|Manajer paket tidak dikenali/.test(r.output);
         // Password sudo salah punya pesan khas
@@ -419,7 +481,7 @@
       }).catch(function (e) {
         marks[i].className = 'fail';
         marks[i].textContent = '✕';
-        finish(false, e.message);
+        finish(false, userStopped ? 'Pemasangan dihentikan.' : e.message);
       });
     }
 
@@ -429,7 +491,7 @@
       actions.innerHTML = '';
 
       if (ok) {
-        write('\nSelesai. Menyambungkan layar…\n');
+        write('\nSelesai. Menyambungkan layar…\n', true);
         UI.toast('Desktop terpasang. Password VNC: ' + opts.vncPass, 'ok', 12000);
         $('dPort').value = port;
         $('dPass').value = opts.vncPass;
@@ -438,7 +500,7 @@
         actions.appendChild(back);
         setTimeout(function () { connect(); }, 1200);
       } else {
-        write('\n' + (msg || 'Pemasangan berhenti.') + '\n');
+        write('\n' + (msg || 'Pemasangan berhenti.') + '\n', true);
         UI.toast(msg || 'Pemasangan gagal.', 'err', 9000);
         var retry = UI.el('button', 'ghost-btn', 'Coba lagi');
         retry.onclick = function () { wizardPanel(true); };

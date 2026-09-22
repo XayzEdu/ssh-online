@@ -110,18 +110,21 @@
 
   /** Jalankan perintah dan terima keluarannya sepotong demi sepotong. */
   function execStream(command, cwd, cols, rows, onChunk, signal) {
-    return fetch(ENDPOINT, {
+    var controller = signal ? null : (typeof AbortController !== 'undefined' ? new AbortController() : null);
+    var useSignal = signal || (controller && controller.signal);
+
+    var p = fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      signal: signal,
+      signal: useSignal,
       body: JSON.stringify({
         action: 'exec', token: Session.token,
         command: command, cwd: cwd, cols: cols, rows: rows
       })
     }).then(function (res) {
       if (!res.body || !res.body.getReader) {
-        return res.text().then(function (t) { onChunk(t); return t; });
+        return res.text().then(function (t) { onChunk(t, true); return t; });
       }
       var reader = res.body.getReader();
       var decoder = new TextDecoder('utf-8');
@@ -130,17 +133,66 @@
         return reader.read().then(function (r) {
           if (r.done) {
             var tail = decoder.decode();
-            if (tail) { all += tail; onChunk(tail); }
+            if (tail) { all += tail; onChunk(tail, true); }
             return all;
           }
           var text = decoder.decode(r.value, { stream: true });
           all += text;
-          onChunk(text);
+          onChunk(text, false);
           return pump();
         });
       }
       return pump();
     });
+
+    if (controller) p.stop = function () { try { controller.abort(); } catch (e) {} };
+    return p;
+  }
+
+  /** Jalankan SATU perintah panjang lewat WebSocket, tanpa batas waktu buatan.
+   *  Hanya tersedia di mode lokal (Codespaces, komputer sendiri, VPS sendiri).
+   *  Dipakai oleh pemasang desktop supaya "apt install" yang makan waktu
+   *  beberapa menit tidak ikut terpotong oleh batas fungsi serverless.
+   *  Promise yang dikembalikan punya .stop() untuk menghentikan paksa. */
+  function execWs(command, cwd, cols, rows, onChunk) {
+    var ws;
+    var p = new Promise(function (resolve, reject) {
+      var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+      try {
+        ws = new WebSocket(proto + location.host + '/ws/exec?token=' + encodeURIComponent(Session.token));
+      } catch (e) { return reject(e); }
+      ws.binaryType = 'arraybuffer';
+
+      var settled = false;
+      var started = false;
+      var decoder = new TextDecoder('utf-8');
+
+      ws.onopen = function () {
+        ws.send(JSON.stringify({ command: command, cwd: cwd, cols: cols, rows: rows }));
+      };
+      ws.onmessage = function (ev) {
+        // Sama seperti /ws/term: pesan kontrol selalu dikirim sebagai frame
+        // teks (JSON), keluaran perintah asli selalu dikirim sebagai frame
+        // biner. Tidak perlu menebak-nebak isi teksnya.
+        if (typeof ev.data === 'string') {
+          var msg;
+          try { msg = JSON.parse(ev.data); } catch (e) { if (onChunk) onChunk(ev.data, false); return; }
+          if (msg.t === 'ready') { started = true; return; }
+          if (msg.t === 'error') { settled = true; try { ws.close(); } catch (e2) {} reject(new Error(msg.m || 'Galat tidak diketahui')); return; }
+          if (msg.t === 'exit') { settled = true; try { ws.close(); } catch (e2) {} resolve(); return; }
+          return;
+        }
+        if (onChunk) onChunk(decoder.decode(ev.data, { stream: true }), false);
+      };
+      ws.onerror = function () {
+        if (!started) { settled = true; reject(new Error('Tidak bisa membuka koneksi WebSocket ke server.')); }
+      };
+      ws.onclose = function () {
+        if (!settled) { settled = true; resolve(); } // ditutup manual (mis. tombol Berhenti) atau tab pindah
+      };
+    });
+    p.stop = function () { try { ws && ws.close(); } catch (e) {} };
+    return p;
   }
 
   /* --------------------------------------------------------- profil VPS */
@@ -175,6 +227,7 @@
   global.XayzApi = {
     rpc: rpc,
     execStream: execStream,
+    execWs: execWs,
     Session: Session,
     Profiles: Profiles,
     Prefs: Prefs,

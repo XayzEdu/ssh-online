@@ -12,7 +12,7 @@ const path = require('path');
 const url = require('url');
 const { WebSocketServer } = require('ws');
 
-const { handle } = require('./lib/api');
+const { handle, buildShellCommand } = require('./lib/api');
 const { unseal } = require('./lib/crypto');
 const pool = require('./lib/pool');
 
@@ -91,6 +91,7 @@ server.headersTimeout = 70000;
 
 const wssTerm = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 8 * 1024 * 1024 });
 const wssVnc = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 16 * 1024 * 1024 });
+const wssExec = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 4 * 1024 * 1024 });
 
 server.on('upgrade', (req, socket, head) => {
   const { pathname, query } = url.parse(req.url, true);
@@ -98,6 +99,8 @@ server.on('upgrade', (req, socket, head) => {
     wssTerm.handleUpgrade(req, socket, head, (ws) => openShell(ws, query));
   } else if (pathname === '/ws/vnc') {
     wssVnc.handleUpgrade(req, socket, head, (ws) => openVnc(ws, query));
+  } else if (pathname === '/ws/exec') {
+    wssExec.handleUpgrade(req, socket, head, (ws) => openExec(ws, query));
   } else {
     socket.destroy();
   }
@@ -254,6 +257,112 @@ async function openVnc(ws, query) {
       return;
     }
     try { stream.write(buf); } catch {}
+  });
+}
+
+/**
+ * WebSocket untuk perintah SATU KALI yang bisa berjalan lama (mis. apt install
+ * saat pemasangan desktop). Bedanya dengan /ws/term: tidak ada shell interaktif
+ * bolak-balik, hanya satu perintah, PTY penuh, dan yang paling penting —
+ * TIDAK ADA batas waktu buatan. Selama koneksi WebSocket masih terbuka (yaitu
+ * selama tab Anda masih terbuka), perintah boleh berjalan berjam-jam kalau
+ * memang perlu, sama seperti sesi SSH biasa di JuiceSSH atau PuTTY.
+ *
+ * Ini hanya masuk akal di server lokal (Codespaces, komputer sendiri, VPS
+ * sendiri) karena Vercel tidak mendukung WebSocket sama sekali — di sana
+ * klien otomatis memakai jalur HTTP streaming yang memang dibatasi waktu.
+ */
+async function openExec(ws, query) {
+  let creds;
+  try {
+    creds = unseal(query.token);
+  } catch (e) {
+    wsSend(ws, { t: 'error', m: e.message });
+    return ws.close();
+  }
+
+  let stream = null;
+  let alive = true;
+  let started = false;
+
+  ws.on('close', () => {
+    alive = false;
+    try { stream && stream.signal('KILL'); } catch {}
+    try { stream && stream.end(); } catch {}
+  });
+
+  ws.on('message', (raw) => {
+    if (started) {
+      // Setelah berjalan, pesan teks dianggap kontrol (mis. hentikan paksa).
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.t === 'stop' && stream) { try { stream.signal('KILL'); } catch {} }
+      } catch {}
+      return;
+    }
+    started = true;
+
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { msg = {}; }
+    const command = String(msg.command || '').trim();
+    const cwd = msg.cwd || '~';
+    const cols = Math.min(Math.max(Number(msg.cols) || 100, 20), 500);
+    const rows = Math.min(Math.max(Number(msg.rows) || 30, 5), 200);
+
+    if (!command) {
+      wsSend(ws, { t: 'exit', code: 0 });
+      return ws.close();
+    }
+
+    const full = buildShellCommand(cwd, command);
+
+    (async () => {
+      try {
+        const conn = await pool.acquire(creds);
+        if (!alive) return;
+
+        conn.exec(full, { pty: { cols, rows, term: 'xterm-256color' } }, (err, s) => {
+          if (err) {
+            wsSend(ws, { t: 'error', m: 'Gagal menjalankan perintah: ' + err.message });
+            return ws.close();
+          }
+          if (!alive) { s.end(); return; }
+          stream = s;
+          wsSend(ws, { t: 'ready' });
+
+          // Batas keamanan saja (bukan batas produk): mencegah proses yang
+          // benar-benar tak berkesudahan menggantung selamanya bila tab
+          // ditinggal tanpa ditutup. Jauh lebih longgar daripada 55 detik.
+          const safety = setTimeout(() => {
+            try { s.signal('KILL'); } catch {}
+            if (ws.readyState === 1) {
+              ws.send('\r\n\x1b[33m[dihentikan: tidak ada aktivitas selama batas keamanan 45 menit]\x1b[0m\r\n');
+            }
+          }, Number(process.env.XAYZ_EXEC_TIMEOUT_LOCAL || 45 * 60 * 1000));
+          if (safety.unref) safety.unref();
+
+          s.on('data', (d) => {
+            if (ws.readyState === 1) { try { ws.send(d); } catch {} }
+          });
+          s.stderr.on('data', (d) => {
+            if (ws.readyState === 1) { try { ws.send(d); } catch {} }
+          });
+          s.on('close', (code) => {
+            clearTimeout(safety);
+            wsSend(ws, { t: 'exit', code: code || 0 });
+            try { ws.close(); } catch {}
+          });
+          s.on('error', (e) => {
+            clearTimeout(safety);
+            wsSend(ws, { t: 'error', m: e.message });
+            try { ws.close(); } catch {}
+          });
+        });
+      } catch (e) {
+        wsSend(ws, { t: 'error', m: e.message });
+        try { ws.close(); } catch {}
+      }
+    })();
   });
 }
 
